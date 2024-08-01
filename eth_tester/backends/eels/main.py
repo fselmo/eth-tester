@@ -4,6 +4,7 @@ from typing import (
     Any,
     Dict,
     List,
+    Optional,
     Union,
 )
 
@@ -364,7 +365,7 @@ class EELSBackend(BaseChainBackend):
         for i, tx in enumerate(self._pending_block["transactions"]):
             try:
                 # TODO: Handle state reversion / snapshotting appropriately
-                env = self.environment(tx, gas_available, state=state_copy)
+                env = self.synthetic_tx_environment(tx, state=state_copy)
                 pre_state = self._generate_state_snapshot()
                 process_transaction_return = self.fork.process_transaction(env, tx)
                 post_state = env.state
@@ -761,53 +762,87 @@ class EELSBackend(BaseChainBackend):
     #
     # Transactions
     #
-    def environment(self, tx: Any, gas_available: Any, state: Any = None) -> Any:
+    def synthetic_tx_environment(
+        self,
+        tx: Any,
+        state=None,
+        block_number: Optional[int] = None,
+    ) -> Any:
         """
         Create the environment for the transaction. The keyword
-        arguments are adjusted according to the fork.
+        arguments are adjusted according to the fork. If the block number is
+        provided, the state is generated for that block number.
         """
-        pending_header = self._pending_block["header"]
+        if block_number in (None, self.chain.latest_block.header.number):
+            chain = self.chain
+            if block_number is None and state is None:
+                raise ValidationError(
+                    "Must specify either `state` or `block_number` for the transaction."
+                )
+            state = state or self._generate_state_snapshot()
+            block_header = self._pending_block["header"]
+            gas_available = self._max_available_gas()
+        else:
+            if state:
+                raise ValidationError("Cannot provide both `state` and `block_number`.")
+            state = self._get_state_for_block_number(block_number)
+            chain = EELSBlockChain(
+                blocks=self.chain.blocks[: block_number + 1],
+                state=state,
+                chain_id=self.chain.chain_id,
+            )
+            block_header = chain.latest_block.header
+            block_header = {
+                "coinbase": block_header.coinbase,
+                "number": block_header.number,
+                "gas_limit": block_header.gas_limit,
+                "gas_used": block_header.gas_used,
+                "time": block_header.timestamp,
+                "prev_randao": block_header.prev_randao,
+                "difficulty": block_header.difficulty,
+                "base_fee_per_gas": block_header.base_fee_per_gas,
+                "excess_blob_gas": block_header.excess_blob_gas,
+            }
+            gas_available = block_header["gas_limit"] - block_header["gas_used"]
+
         kw_arguments = {
-            "block_hashes": self._fork_module.get_last_256_block_hashes(self.chain),
-            "coinbase": pending_header["coinbase"],
-            "number": pending_header["number"],
-            "gas_limit": pending_header["gas_limit"],
-            "time": pending_header["timestamp"],
-            "state": state or self.chain.state,
+            "block_hashes": self._fork_module.get_last_256_block_hashes(chain),
+            "coinbase": block_header["coinbase"],
+            "number": block_number or self.chain.latest_block.header.number,
+            "gas_limit": block_header["gas_limit"],
+            "time": block_header.get("timestamp", int(time.time())),
+            "state": state,
         }
 
         if self.fork.is_after_fork("ethereum.paris"):
-            kw_arguments["prev_randao"] = pending_header["prev_randao"]
+            kw_arguments["prev_randao"] = block_header["prev_randao"]
         else:
-            kw_arguments["difficulty"] = pending_header["difficulty"]
+            kw_arguments["difficulty"] = block_header["difficulty"]
 
         if self.fork.is_after_fork("ethereum.istanbul"):
-            kw_arguments["chain_id"] = self.chain.chain_id
+            kw_arguments["chain_id"] = chain.chain_id
 
         check_tx_return = self._check_transaction(tx, gas_available)
-
         if self.fork.is_after_fork("ethereum.cancun"):
             (
                 sender_address,
                 effective_gas_price,
                 blob_versioned_hashes,
             ) = check_tx_return
-            kw_arguments["base_fee_per_gas"] = pending_header["base_fee_per_gas"]
-            kw_arguments["caller"] = kw_arguments["origin"] = sender_address
+            kw_arguments["base_fee_per_gas"] = block_header["base_fee_per_gas"]
             kw_arguments["gas_price"] = effective_gas_price
             kw_arguments["blob_versioned_hashes"] = blob_versioned_hashes
-            kw_arguments["excess_blob_gas"] = pending_header["excess_blob_gas"]
+            kw_arguments["excess_blob_gas"] = block_header["excess_blob_gas"]
             kw_arguments["transient_storage"] = self.fork.TransientStorage()
         elif self.fork.is_after_fork("ethereum.london"):
             sender_address, effective_gas_price = check_tx_return
-            kw_arguments["base_fee_per_gas"] = pending_header["base_fee_per_gas"]
-            kw_arguments["caller"] = kw_arguments["origin"] = sender_address
+            kw_arguments["base_fee_per_gas"] = block_header["base_fee_per_gas"]
             kw_arguments["gas_price"] = effective_gas_price
         else:
             sender_address = check_tx_return
-            kw_arguments["caller"] = kw_arguments["origin"] = sender_address
             kw_arguments["gas_price"] = tx.gas_price
 
+        kw_arguments["caller"] = kw_arguments["origin"] = sender_address
         kw_arguments["traces"] = []
         return self.fork.Environment(**kw_arguments)
 
@@ -1040,11 +1075,10 @@ class EELSBackend(BaseChainBackend):
         header = self.chain.latest_block.header
         return header.gas_limit - header.gas_used
 
-    def _generate_transaction_env(
+    def _generate_transaction_env_for_block_number(
         self,
         transaction,
-        synthetic_state=False,
-        state=None,
+        block_number,
     ):
         signed_and_normalized_json_tx = self._get_normalized_and_signed_evm_transaction(
             transaction,
@@ -1053,33 +1087,34 @@ class EELSBackend(BaseChainBackend):
             signed_and_normalized_json_tx, self.fork
         ).read()
 
+        env = self.synthetic_tx_environment(
+            signed_transaction, block_number=block_number
+        )
+
         # check / validate the transaction
         self._check_transaction(
             signed_transaction,
             # TODO: Stop lazily plugging in the parent block's gas limit
             self.chain.latest_block.header.gas_limit,
         )
-
-        env_state = (
-            state or self._generate_state_snapshot()
-            if synthetic_state
-            else self.chain.state
-        )
-        env = self.environment(
-            signed_transaction, self._max_available_gas(), state=env_state
-        )
         return env, signed_transaction
 
-    def _get_synthetic_env_and_tx_for_block_number(self, transaction, block_number):
-        env_state = None
-        if block_number not in ("latest", "safe", "finalized"):
-            # if not "latest" state, we need to get the state snapshot for the block
-            if block_number == "earliest":
-                block_number = 0
-            env_state = self._get_state_for_block_number(block_number)
+    def _get_synthetic_env_and_tx_for_block_number(
+        self, transaction, block_number="latest"
+    ):
+        if block_number in ("latest", "safe", "finalized", "pending"):
+            block_number = self.chain.latest_block.header.number
+        elif block_number == "earliest":
+            block_number = 0
+        if not isinstance(block_number, int):
+            raise ValidationError("Invalid block number.")
+
         try:
-            env, signed_evm_transaction = self._generate_transaction_env(
-                transaction, synthetic_state=True, state=env_state
+            (
+                env,
+                signed_evm_transaction,
+            ) = self._generate_transaction_env_for_block_number(
+                transaction, block_number
             )
             return env, signed_evm_transaction
         except EthereumException:
