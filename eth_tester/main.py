@@ -577,7 +577,7 @@ class EthereumTester:
     #
     # Private filter API
     #
-    def _revert_block_filter(self, filter):
+    def _revert_block_filter(self, filter_):
         is_valid_block_hash = excepts(
             (BlockNotFound,),
             compose(
@@ -587,10 +587,10 @@ class EthereumTester:
             ),
             lambda v: False,
         )
-        values_to_remove = tuple(remove(is_valid_block_hash, filter.get_all()))
-        filter.remove(*values_to_remove)
+        values_to_remove = tuple(remove(is_valid_block_hash, filter_.get_all()))
+        filter_.remove(*values_to_remove)
 
-    def _revert_pending_transaction_filter(self, filter):
+    def _revert_pending_transaction_filter(self, filter_):
         is_valid_transaction_hash = excepts(
             (TransactionNotFound,),
             compose(
@@ -600,10 +600,10 @@ class EthereumTester:
             ),
             lambda v: False,
         )
-        values_to_remove = remove(is_valid_transaction_hash, filter.get_all())
-        filter.remove(*values_to_remove)
+        values_to_remove = remove(is_valid_transaction_hash, filter_.get_all())
+        filter_.remove(*values_to_remove)
 
-    def _revert_log_filter(self, filter):
+    def _revert_log_filter(self, filter_):
         is_valid_transaction_hash = excepts(
             (TransactionNotFound,),
             compose(
@@ -614,8 +614,8 @@ class EthereumTester:
             ),
             lambda v: False,
         )
-        values_to_remove = remove(is_valid_transaction_hash, filter.get_all())
-        filter.remove(*values_to_remove)
+        values_to_remove = remove(is_valid_transaction_hash, filter_.get_all())
+        filter_.remove(*values_to_remove)
 
     #
     # Filters
@@ -698,18 +698,18 @@ class EthereumTester:
         raw_filter_id = self.normalizer.normalize_inbound_filter_id(filter_id)
 
         if raw_filter_id in self._block_filters:
-            filter = self._block_filters[raw_filter_id]
+            filter_ = self._block_filters[raw_filter_id]
             normalize_fn = self.normalizer.normalize_outbound_block_hash
         elif raw_filter_id in self._pending_transaction_filters:
-            filter = self._pending_transaction_filters[raw_filter_id]
+            filter_ = self._pending_transaction_filters[raw_filter_id]
             normalize_fn = self.normalizer.normalize_outbound_transaction_hash
         elif raw_filter_id in self._log_filters:
-            filter = self._log_filters[raw_filter_id]
+            filter_ = self._log_filters[raw_filter_id]
             normalize_fn = self.normalizer.normalize_outbound_log_entry
         else:
             raise FilterNotFound("Unknown filter id")
 
-        for item in filter.get_changes():
+        for item in filter_.get_changes():
             yield normalize_fn(item)
 
     @to_tuple
@@ -718,18 +718,18 @@ class EthereumTester:
         raw_filter_id = self.normalizer.normalize_inbound_filter_id(filter_id)
 
         if raw_filter_id in self._block_filters:
-            filter = self._block_filters[raw_filter_id]
+            filter_ = self._block_filters[raw_filter_id]
             normalize_fn = self.normalizer.normalize_outbound_block_hash
         elif raw_filter_id in self._pending_transaction_filters:
-            filter = self._pending_transaction_filters[raw_filter_id]
+            filter_ = self._pending_transaction_filters[raw_filter_id]
             normalize_fn = self.normalizer.normalize_outbound_transaction_hash
         elif raw_filter_id in self._log_filters:
-            filter = self._log_filters[raw_filter_id]
+            filter_ = self._log_filters[raw_filter_id]
             normalize_fn = self.normalizer.normalize_outbound_log_entry
         else:
             raise FilterNotFound("Unknown filter id")
 
-        for item in filter.get_all():
+        for item in filter_.get_all():
             yield normalize_fn(item)
 
     @to_tuple
@@ -752,7 +752,7 @@ class EthereumTester:
             topics=topics,
         )
 
-        # Setup the filter object
+        # set up the filter object
         raw_filter_params = {
             "from_block": raw_from_block,
             "to_block": raw_to_block,

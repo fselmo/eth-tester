@@ -21,6 +21,7 @@ from eth_typing import (
 from eth_utils import (
     int_to_big_endian,
     logging,
+    to_canonical_address,
     to_dict,
     to_tuple,
 )
@@ -138,7 +139,7 @@ class EELSBackend(BaseChainBackend):
 
     def __init__(
         self,
-        fork_name: ForkName = None,
+        fork_name: str = None,
         genesis_params=None,
         genesis_state=None,
         num_accounts=None,
@@ -164,7 +165,6 @@ class EELSBackend(BaseChainBackend):
         self._transactions_module = self.fork._module("transactions")
         self._fork_types = self.fork._module("fork_types")
         self._utils_module = self.fork._module("utils")
-
         self.reset_to_genesis(
             genesis_params=genesis_params,
             genesis_state=genesis_state,
@@ -475,9 +475,7 @@ class EELSBackend(BaseChainBackend):
         return state_copy
 
     def _get_state_for_block_number(self, block_number):
-        if block_number in ("latest", "safe", "finalized"):
-            return self._state_history[self.chain.latest_block.header.number]
-        elif block_number == "pending":
+        if block_number in ("latest", "safe", "finalized", "pending"):
             return self._generate_state_snapshot()
         elif block_number == "earliest":
             block_number = 0
@@ -738,23 +736,32 @@ class EELSBackend(BaseChainBackend):
     # Account state
     #
     def get_nonce(self, account, block_number="latest"):
-        return self.fork.get_account(self.chain.state, account).nonce
+        return self.fork.get_account(
+            self._get_state_for_block_number(block_number), account
+        ).nonce
 
     def get_balance(self, account, block_number="latest"):
-        return self.fork.get_account(self.chain.state, account).balance
+        return self.fork.get_account(
+            self._get_state_for_block_number(block_number), account
+        ).balance
 
     def get_code(self, account, block_number="latest"):
-        return self.fork.get_account(self.chain.state, account).code
+        return self.fork.get_account(
+            self._get_state_for_block_number(block_number), account
+        ).code
 
     def get_storage(
         self, account: Address, slot: Union[int, bytes], block_number="latest"
     ) -> bytes:
-        # TODO: block_number
         if isinstance(slot, int):
             slot = int_to_big_endian(slot)
         # left pad with zero bytes to 32 bytes
         slot = slot.rjust(32, b"\x00")
-        return self._state_module.get_storage(self.chain.state, account, slot)
+        return self._state_module.get_storage(
+            self._get_state_for_block_number(block_number),
+            account,
+            slot,
+        )
 
     def get_base_fee(self) -> int:
         return self._pending_block["header"]["base_fee_per_gas"]
@@ -1061,7 +1068,7 @@ class EELSBackend(BaseChainBackend):
                 self.fork.Withdrawal(
                     index=U64(withdrawal["index"]),
                     validator_index=U64(withdrawal["validator_index"]),
-                    address=Address(withdrawal["address"]),
+                    address=Address(to_canonical_address(withdrawal["address"])),
                     amount=U256(withdrawal["amount"]),
                 )
             )
@@ -1085,11 +1092,9 @@ class EELSBackend(BaseChainBackend):
         signed_transaction = TransactionLoad(
             signed_and_normalized_json_tx, self.fork
         ).read()
-
         env = self.synthetic_tx_environment(
             signed_transaction, block_number=block_number
         )
-
         # check / validate the transaction
         self._check_transaction(
             signed_transaction,
