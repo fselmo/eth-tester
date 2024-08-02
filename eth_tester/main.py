@@ -129,9 +129,9 @@ class EthereumTester:
         self.backend = backend
         self.validator = validator
         self.normalizer = normalizer
+        self.chain_id = lambda: int(self.backend.chain.chain_id)
 
         self.auto_mine_transactions = auto_mine_transactions
-
         self._reset_local_state()
 
     #
@@ -376,9 +376,15 @@ class EthereumTester:
     #
     def enable_auto_mine_transactions(self):
         self.auto_mine_transactions = True
-        sent_transaction_hashes = self._pop_pending_transactions_to_pending_block()
-        self.mine_block()
-        return sent_transaction_hashes
+        if not self.backend.handles_pending_transactions:
+            self._pop_pending_transactions_to_pending_block()
+            sent_transaction_hashes = self._pop_pending_transactions_to_pending_block()
+            self.mine_block()
+            return sent_transaction_hashes
+        else:
+            pending_transactions = self.backend._pending_block["transactions"]
+            self.mine_block()
+            return [self.backend._get_tx_hash(tx) for tx in pending_transactions]
 
     def disable_auto_mine_transactions(self):
         self.auto_mine_transactions = False
@@ -387,7 +393,10 @@ class EthereumTester:
         self.validator.validate_inbound_account(coinbase)
         normalized_coinbase = self.normalizer.normalize_inbound_account(coinbase)
 
-        if not self.auto_mine_transactions:
+        if (
+            not self.auto_mine_transactions
+            and not self.backend.handles_pending_transactions
+        ):
             self._pop_pending_transactions_to_pending_block()
 
         raw_block_hashes = self.backend.mine_blocks(num_blocks, normalized_coinbase)
