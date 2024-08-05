@@ -377,7 +377,6 @@ class EthereumTester:
     def enable_auto_mine_transactions(self):
         self.auto_mine_transactions = True
         if not self.backend.handles_pending_transactions:
-            self._pop_pending_transactions_to_pending_block()
             sent_transaction_hashes = self._pop_pending_transactions_to_pending_block()
             self.mine_block()
             return sent_transaction_hashes
