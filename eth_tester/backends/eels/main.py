@@ -11,6 +11,9 @@ from typing import (
     Union,
 )
 
+from eth_account import (
+    Account,
+)
 from eth_keys import (
     KeyAPI,
 )
@@ -26,6 +29,7 @@ from eth_utils import (
     to_canonical_address,
     to_dict,
     to_tuple,
+    to_wei,
 )
 from ethereum import (
     rlp,
@@ -34,6 +38,11 @@ from ethereum.base_types import (
     U64,
     U256,
     Uint,
+)
+from ethereum.cancun.fork import (
+    SYSTEM_ADDRESS,
+    SYSTEM_TRANSACTION_GAS,
+    BlockChain,
 )
 from ethereum.crypto.hash import (
     keccak256,
@@ -99,17 +108,10 @@ from .utils import (
     is_eels_available,
 )
 
-if is_eels_available():
-    from ethereum.cancun.fork import (
-        SYSTEM_ADDRESS,
-        SYSTEM_TRANSACTION_GAS,
-        BlockChain,
-    )
-
-
 GENESIS_BLOCK_NUMBER = Uint(0)
 GENESIS_DIFFICULTY = Uint(131072)
-GENESIS_GAS_LIMIT = Uint(30029122)  # gas limit at London fork block 12965000 on mainnet
+# gas limit at London fork on mainnet (arbitrary/taken from pyevm backend)
+GENESIS_GAS_LIMIT = Uint(30029122)
 GENESIS_NONCE = b"\x00\x00\x00\x00\x00\x00\x00*"  # 42 encoded as big-endian-integer
 GENESIS_COINBASE = ZERO_ADDRESS
 GENESIS_MIX_HASH = ZERO_HASH32
@@ -156,7 +158,7 @@ class EELSBackend(BaseChainBackend):
                 "and importable."
             )
 
-        if fork_name is None:
+        if fork_name in (None, "latest"):
             # always try to keep this as the latest
             fork_name = "cancun"
 
@@ -204,34 +206,6 @@ class EELSBackend(BaseChainBackend):
     def time_travel(self, to_timestamp):
         self._pending_block["header"]["timestamp"] = to_timestamp
 
-    def _get_default_account_state(self, overrides=None):
-        account_state = merge_genesis_overrides(
-            defaults={
-                "balance": U256(0),
-                "code": b"",
-                "nonce": Uint(0),
-            },
-            overrides=overrides or {},
-        )
-        return self.fork.Account(**account_state)
-
-    @to_dict
-    def _generate_genesis_state_for_keys(self, account_keys, overrides=None):
-        for private_key in account_keys:
-            account_state = self._get_default_account_state(
-                overrides=overrides or {"balance": U256(10**18)}
-            )
-            yield private_key.public_key.to_canonical_address(), account_state
-
-    @to_tuple
-    def get_default_account_keys(self, quantity=None):
-        keys = KeyAPI()
-        quantity = quantity or 10
-        for i in range(1, quantity + 1):
-            pk_bytes = int_to_big_endian(i).rjust(32, b"\x00")
-            private_key = keys.PrivateKey(pk_bytes)
-            yield private_key
-
     #
     # Genesis
     #
@@ -248,6 +222,35 @@ class EELSBackend(BaseChainBackend):
         self._account_keys.extend(account_keys)
         return self._generate_genesis_state_for_keys(
             account_keys=account_keys, overrides=overrides
+        )
+
+    def _generate_genesis_block(self):
+        return self.fork.Block(
+            header=self.fork.Header(
+                parent_hash=ZERO_HASH32,
+                ommers_hash=ZERO_HASH32,
+                coinbase=ZERO_ADDRESS,
+                state_root=ZERO_HASH32,
+                transactions_root=ZERO_HASH32,
+                receipt_root=ZERO_HASH32,
+                bloom=GENESIS_LOGS_BLOOM,
+                difficulty=GENESIS_DIFFICULTY,
+                number=Uint(0),
+                gas_limit=GENESIS_GAS_LIMIT,
+                gas_used=Uint(0),
+                timestamp=U256(int(time.time())),
+                extra_data=ZERO_HASH32,
+                prev_randao=ZERO_HASH32,
+                nonce=GENESIS_NONCE,
+                withdrawals_root=ZERO_HASH32,
+                blob_gas_used=Uint(0),
+                excess_blob_gas=Uint(0),
+                parent_beacon_block_root=ZERO_HASH32,
+                base_fee_per_gas=Uint(1000000000),
+            ),
+            transactions=(),
+            ommers=(),
+            withdrawals=(),
         )
 
     def reset_to_genesis(
@@ -301,6 +304,25 @@ class EELSBackend(BaseChainBackend):
             key.public_key.to_canonical_address(): key for key in self._account_keys
         }
 
+    def _get_default_account_state(self, overrides=None):
+        account_state = merge_genesis_overrides(
+            defaults={
+                "balance": U256(0),
+                "code": b"",
+                "nonce": Uint(0),
+            },
+            overrides=overrides or {},
+        )
+        return self.fork.Account(**account_state)
+
+    @to_dict
+    def _generate_genesis_state_for_keys(self, account_keys, overrides=None):
+        for private_key in account_keys:
+            account_state = self._get_default_account_state(
+                overrides=overrides or {"balance": U256(to_wei(1000000, "ether"))}
+            )
+            yield private_key.public_key.to_canonical_address(), account_state
+
     #
     # Snapshot API
     #
@@ -315,6 +337,70 @@ class EELSBackend(BaseChainBackend):
         self._state_context = self._copy_state_context(
             state_context=self._state_context_history[block_number]
         )
+
+    #
+    # State management
+    #
+    def _copy_state_context(self, state_context=None):
+        if state_context is None:
+            state_context = self._state_context
+
+        state_copy = self.fork.State()
+        state_copy._main_trie = self._state_module.copy_trie(
+            state_context.chain.state._main_trie
+        )
+        state_copy._storage_tries = {
+            k: self._state_module.copy_trie(t)
+            for (k, t) in state_context.chain.state._storage_tries.items()
+        }
+
+        state_context_copy = EELSStateContext(
+            chain=EELSBlockChain(
+                blocks=state_context.chain.blocks[:],
+                state=state_copy,
+                chain_id=state_context.chain.chain_id,
+            ),
+            transactions_map=copy.deepcopy(state_context.transactions_map),
+            receipts_map=copy.deepcopy(state_context.receipts_map),
+        )
+        state_context_copy.chain.pending_block = self._copy_pending_block(
+            state_context.chain.pending_block
+        )
+        return state_context_copy
+
+    @contextmanager
+    def _state_context_manager(self, block_number, synthetic_state=False):
+        pending_block_number = self._pending_block["header"]["number"]
+        if block_number in ("latest", "safe", "finalized"):
+            block_number = self.chain.latest_block.header.number
+        elif block_number == "pending":
+            block_number = pending_block_number
+        elif block_number == "earliest":
+            block_number = 0
+
+        if int(block_number) < pending_block_number:
+            # if not current state, generate a snapshot and use the desired state
+            current_state_context = self._copy_state_context()
+            desired_state_context = self._copy_state_context(
+                state_context=self._state_context_history[block_number]
+            )
+            try:
+                self._state_context = desired_state_context
+                yield
+            finally:
+                self._state_context = current_state_context
+        elif int(block_number) == pending_block_number and synthetic_state:
+            current_state_context = self._copy_state_context()
+            state_context_copy = self._copy_state_context()
+            try:
+                # build the state from a copy of the current state
+                self._state_context = state_context_copy
+                yield
+            finally:
+                # restore the original state
+                self._state_context = current_state_context
+        else:
+            yield
 
     #
     # Importing blocks
@@ -400,7 +486,7 @@ class EELSBackend(BaseChainBackend):
             for i, tx in enumerate(self._pending_block["transactions"]):
                 snapshot_id = self.take_snapshot()
                 try:
-                    env = self.synthetic_tx_environment(tx)
+                    env = self._synthetic_tx_environment(tx)
                     pre_state = self._copy_state_context().chain.state
                     process_transaction_return = self.fork.process_transaction(env, tx)
                     post_state = env.state
@@ -497,96 +583,6 @@ class EELSBackend(BaseChainBackend):
                 self._pending_block["ommers"]
             )
             return apply_body_output_dict
-
-    def _copy_state_context(self, state_context=None):
-        if state_context is None:
-            state_context = self._state_context
-
-        state_copy = self.fork.State()
-        state_copy._main_trie = self._state_module.copy_trie(
-            state_context.chain.state._main_trie
-        )
-        state_copy._storage_tries = {
-            k: self._state_module.copy_trie(t)
-            for (k, t) in state_context.chain.state._storage_tries.items()
-        }
-
-        state_context_copy = EELSStateContext(
-            chain=EELSBlockChain(
-                blocks=state_context.chain.blocks[:],
-                state=state_copy,
-                chain_id=state_context.chain.chain_id,
-            ),
-            transactions_map=copy.deepcopy(state_context.transactions_map),
-            receipts_map=copy.deepcopy(state_context.receipts_map),
-        )
-        state_context_copy.chain.pending_block = self._copy_pending_block(
-            state_context.chain.pending_block
-        )
-        return state_context_copy
-
-    @contextmanager
-    def _state_context_manager(self, block_number, synthetic_state=False):
-        pending_block_number = self._pending_block["header"]["number"]
-        if block_number in ("latest", "safe", "finalized"):
-            block_number = self.chain.latest_block.header.number
-        elif block_number == "pending":
-            block_number = pending_block_number
-        elif block_number == "earliest":
-            block_number = 0
-
-        if int(block_number) < pending_block_number:
-            # if not current state, generate a snapshot and use the desired state
-            current_state_context = self._copy_state_context()
-            desired_state_context = self._copy_state_context(
-                state_context=self._state_context_history[block_number]
-            )
-            try:
-                self._state_context = desired_state_context
-                yield
-            finally:
-                self._state_context = current_state_context
-        elif int(block_number) == pending_block_number and synthetic_state:
-            current_state_context = self._copy_state_context()
-            state_context_copy = self._copy_state_context()
-            try:
-                # build the state from a copy of the current state
-                self._state_context = state_context_copy
-                yield
-            finally:
-                # restore the original state
-                self._state_context = current_state_context
-        else:
-            yield
-
-    def _generate_genesis_block(self):
-        return self.fork.Block(
-            header=self.fork.Header(
-                parent_hash=ZERO_HASH32,
-                ommers_hash=ZERO_HASH32,
-                coinbase=ZERO_ADDRESS,
-                state_root=ZERO_HASH32,
-                transactions_root=ZERO_HASH32,
-                receipt_root=ZERO_HASH32,
-                bloom=GENESIS_LOGS_BLOOM,
-                difficulty=GENESIS_DIFFICULTY,
-                number=Uint(0),
-                gas_limit=GENESIS_GAS_LIMIT,
-                gas_used=Uint(0),
-                timestamp=U256(int(time.time())),
-                extra_data=ZERO_HASH32,
-                prev_randao=ZERO_HASH32,
-                nonce=GENESIS_NONCE,
-                withdrawals_root=ZERO_HASH32,
-                blob_gas_used=Uint(0),
-                excess_blob_gas=Uint(0),
-                parent_beacon_block_root=ZERO_HASH32,
-                base_fee_per_gas=Uint(1000000000),
-            ),
-            transactions=(),
-            ommers=(),
-            withdrawals=(),
-        )
 
     def _build_new_pending_block(
         self,
@@ -818,11 +814,11 @@ class EELSBackend(BaseChainBackend):
     #
     def get_nonce(self, account, block_number="pending"):
         with self._state_context_manager(block_number):
-            return self.fork.get_account(self.chain.state, account).nonce
+            return int(self.fork.get_account(self.chain.state, account).nonce)
 
     def get_balance(self, account, block_number="pending"):
         with self._state_context_manager(block_number):
-            return self.fork.get_account(self.chain.state, account).balance
+            return int(self.fork.get_account(self.chain.state, account).balance)
 
     def get_code(self, account, block_number="pending"):
         with self._state_context_manager(block_number):
@@ -844,7 +840,7 @@ class EELSBackend(BaseChainBackend):
     #
     # Transactions
     #
-    def synthetic_tx_environment(
+    def _synthetic_tx_environment(
         self,
         tx: Any,
     ) -> Any:
@@ -1107,6 +1103,51 @@ class EELSBackend(BaseChainBackend):
         )
         return tx_hash
 
+    def estimate_gas(self, transaction, block_number="pending"):
+        pre_state_keys = self._account_keys[:]
+        original_sender_address = transaction["from"]
+
+        with self._state_context_manager(block_number, synthetic_state=True):
+            try:
+                if original_sender_address not in self._key_lookup.keys():
+                    # for now, create a transient account with the same account state
+                    # as the sender, sign, run the transaction against the evm, delete
+                    # the transient account and return the gas consumed.
+                    transaction["from"] = self.transient_account_from_address(
+                        original_sender_address
+                    )
+                transaction["gas"] = self._max_available_gas()
+                env, signed_evm_transaction = self._generate_transaction_env(
+                    transaction
+                )
+            except EthereumException:
+                raise TransactionFailed("Transaction failed to execute.")
+            self._run_message_against_evm(env, signed_evm_transaction)
+            output = self.fork.process_transaction(env, signed_evm_transaction)
+
+        # clean up the transient account if present
+        if original_sender_address != transaction["from"]:
+            self.fork.destroy_account(self.chain.state, transaction["from"])
+            self._account_keys.pop()
+
+        if self._account_keys != pre_state_keys:
+            # sanity check
+            raise ValidationError("Account keys were not cleaned up properly.")
+
+        return int(output[0])  # gas consumed
+
+    def call(self, transaction, block_number="pending"):
+        with self._state_context_manager(block_number, synthetic_state=True):
+            transaction["gas"] = transaction.get("gas", MINIMUM_GAS_ESTIMATE)
+            try:
+                env, signed_evm_transaction = self._generate_transaction_env(
+                    transaction
+                )
+            except EthereumException:
+                raise TransactionFailed("Transaction failed to execute.")
+            evm = self._run_message_against_evm(env, signed_evm_transaction)
+            return evm.output
+
     def apply_withdrawals(
         self,
         withdrawals_list: List[Dict[str, Union[int, str]]],
@@ -1146,7 +1187,7 @@ class EELSBackend(BaseChainBackend):
             signed_and_normalized_json_tx, self.fork
         ).read()
 
-        env = self.synthetic_tx_environment(signed_transaction)
+        env = self._synthetic_tx_environment(signed_transaction)
         # check / validate the transaction
         self._check_transaction(
             signed_transaction,
@@ -1194,31 +1235,6 @@ class EELSBackend(BaseChainBackend):
             raise TransactionFailed(msg)
         return evm
 
-    def estimate_gas(self, transaction, block_number="pending"):
-        transaction["gas"] = self._max_available_gas()
-        with self._state_context_manager(block_number, synthetic_state=True):
-            try:
-                env, signed_evm_transaction = self._generate_transaction_env(
-                    transaction
-                )
-            except EthereumException:
-                raise TransactionFailed("Transaction failed to execute.")
-            self._run_message_against_evm(env, signed_evm_transaction)
-            output = self.fork.process_transaction(env, signed_evm_transaction)
-        return int(output[0])  # gas consumed
-
-    def call(self, transaction, block_number="pending"):
-        transaction["gas"] = transaction.get("gas", MINIMUM_GAS_ESTIMATE)
-        with self._state_context_manager(block_number, synthetic_state=True):
-            try:
-                env, signed_evm_transaction = self._generate_transaction_env(
-                    transaction
-                )
-            except EthereumException:
-                raise TransactionFailed("Transaction failed to execute.")
-            evm = self._run_message_against_evm(env, signed_evm_transaction)
-            return evm.output
-
     def _extract_contract_address(self, pre_state, post_state):
         # TODO: make this more robust / figure out the best way to get the contract
         #   address with execution-specs API
@@ -1228,3 +1244,26 @@ class EELSBackend(BaseChainBackend):
                     return address
 
         return None
+
+    @contextmanager
+    def transient_account_from_address(self, sender_address):
+        """
+        Create a transient account with known pkey with the same state as the sender.
+        """
+        sender_address_account = self.fork.get_account(self.chain.state, sender_address)
+        acct = Account.create()
+        bytes_address = to_canonical_address(acct.address)
+        acct_pkey = KeyAPI.PrivateKey(acct.key)
+        self._account_keys.append(acct_pkey)
+        self.fork.set_account(self.chain.state, bytes_address, sender_address_account)
+
+        yield bytes_address
+
+        popped_key = self._account_keys.pop()
+        self.fork.destroy_account(self.chain.state, bytes_address)
+        if popped_key != acct_pkey:
+            raise ValidationError("Account keys were not cleaned up properly.")
+        assert (
+            self._fork_module.get_account_optional(self.chain.state, bytes_address)
+            is None
+        ), "Transient account was not destroyed properly."
