@@ -238,7 +238,7 @@ class EthereumTester:
 
         self._account_unlock[raw_account] = False
 
-    def get_balance(self, account, block_number="latest"):
+    def get_balance(self, account, block_number="pending"):
         self.validator.validate_inbound_account(account)
         self.validator.validate_inbound_block_number(block_number)
         raw_account = self.normalizer.normalize_inbound_account(account)
@@ -248,7 +248,7 @@ class EthereumTester:
         balance = self.normalizer.normalize_outbound_balance(raw_balance)
         return balance
 
-    def get_code(self, account, block_number="latest"):
+    def get_code(self, account, block_number="pending"):
         self.validator.validate_inbound_account(account)
         self.validator.validate_inbound_block_number(block_number)
         raw_account = self.normalizer.normalize_inbound_account(account)
@@ -263,7 +263,7 @@ class EthereumTester:
         account: HexAddress,
         slot: HexStr,
         # properly type hint once eth-typing brings in updated `BlockIdentifier`
-        block_number="latest",
+        block_number="pending",
     ) -> int:
         self.validator.validate_inbound_account(account)
         self.validator.validate_inbound_storage_slot(slot)
@@ -276,7 +276,7 @@ class EthereumTester:
         storage = self.normalizer.normalize_outbound_storage(raw_storage)
         return storage
 
-    def get_nonce(self, account, block_number="latest"):
+    def get_nonce(self, account, block_number="pending"):
         self.validator.validate_inbound_account(account)
         self.validator.validate_inbound_block_number(block_number)
         raw_account = self.normalizer.normalize_inbound_account(account)
@@ -335,7 +335,7 @@ class EthereumTester:
             )
             return transaction
 
-    def get_block_by_number(self, block_number="latest", full_transactions=False):
+    def get_block_by_number(self, block_number="pending", full_transactions=False):
         self.validator.validate_inbound_block_number(block_number)
         raw_block_number = self.normalizer.normalize_inbound_block_number(block_number)
         raw_block = self.backend.get_block_by_number(
@@ -490,7 +490,7 @@ class EthereumTester:
     def send_transaction(self, transaction):
         return self._add_transaction_to_pending_block(transaction)
 
-    def call(self, transaction, block_number="latest"):
+    def call(self, transaction, block_number="pending"):
         self.validator.validate_inbound_transaction(
             transaction, txn_internal_type="call"
         )
@@ -502,7 +502,7 @@ class EthereumTester:
         result = self.normalizer.normalize_outbound_return_data(raw_result)
         return result
 
-    def estimate_gas(self, transaction, block_number="latest"):
+    def estimate_gas(self, transaction, block_number="pending"):
         self.validator.validate_inbound_transaction(
             transaction, txn_internal_type="estimate"
         )
