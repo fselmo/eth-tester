@@ -229,7 +229,7 @@ def serialize_pending_receipt(
     contract_address=None,
 ):
     tx_hash = backend_instance._get_tx_hash(tx)
-    tx_gas_consumed = process_transaction_return[0]
+    tx_gas_consumed = int(process_transaction_return[0])
 
     pending_block = backend_instance._pending_block
     block_num = pending_block["header"]["number"]
