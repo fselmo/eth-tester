@@ -939,7 +939,7 @@ class EELSBackend(BaseChainBackend):
         if sender_address not in self._key_lookup:
             raise ValidationError(
                 'No valid "from" key was provided in the transaction '
-                "which is required for transaction signing."
+                f"which is required for transaction signing: `{sender_address}`."
             )
 
         private_key = self._key_lookup[sender_address]
@@ -1104,37 +1104,28 @@ class EELSBackend(BaseChainBackend):
         return tx_hash
 
     def estimate_gas(self, transaction, block_number="pending"):
-        pre_state_keys = self._account_keys[:]
         original_sender_address = transaction["from"]
 
         with self._state_context_manager(block_number, synthetic_state=True):
             try:
-                if original_sender_address not in self._key_lookup.keys():
-                    # for now, create a transient account with the same account state
-                    # as the sender, sign, run the transaction against the evm, delete
-                    # the transient account and return the gas consumed.
-                    transaction["from"] = self.transient_account_from_address(
-                        original_sender_address
-                    )
                 transaction["gas"] = self._max_available_gas()
-                env, signed_evm_transaction = self._generate_transaction_env(
-                    transaction
-                )
+                if original_sender_address not in self._key_lookup:
+                    with self._transient_account_from_address(
+                        original_sender_address
+                    ) as transient_account_address:
+                        transaction["from"] = transient_account_address
+                        output = self._process_synthetic_transaction(transaction)
+                else:
+                    output = self._process_synthetic_transaction(transaction)
             except EthereumException:
                 raise TransactionFailed("Transaction failed to execute.")
-            self._run_message_against_evm(env, signed_evm_transaction)
-            output = self.fork.process_transaction(env, signed_evm_transaction)
-
-        # clean up the transient account if present
-        if original_sender_address != transaction["from"]:
-            self.fork.destroy_account(self.chain.state, transaction["from"])
-            self._account_keys.pop()
-
-        if self._account_keys != pre_state_keys:
-            # sanity check
-            raise ValidationError("Account keys were not cleaned up properly.")
-
         return int(output[0])  # gas consumed
+
+    def _process_synthetic_transaction(self, transaction):
+        env, signed_evm_transaction = self._generate_transaction_env(transaction)
+        self._run_message_against_evm(env, signed_evm_transaction)
+        output = self.fork.process_transaction(env, signed_evm_transaction)
+        return output
 
     def call(self, transaction, block_number="pending"):
         with self._state_context_manager(block_number, synthetic_state=True):
@@ -1246,7 +1237,7 @@ class EELSBackend(BaseChainBackend):
         return None
 
     @contextmanager
-    def transient_account_from_address(self, sender_address):
+    def _transient_account_from_address(self, sender_address):
         """
         Create a transient account with known pkey with the same state as the sender.
         """
@@ -1264,6 +1255,6 @@ class EELSBackend(BaseChainBackend):
         if popped_key != acct_pkey:
             raise ValidationError("Account keys were not cleaned up properly.")
         assert (
-            self._fork_module.get_account_optional(self.chain.state, bytes_address)
+            self._state_module.get_account_optional(self.chain.state, bytes_address)
             is None
         ), "Transient account was not destroyed properly."

@@ -1,6 +1,6 @@
 def is_eels_available():
     try:
-        pass
+        from .main import EELSBackend  # noqa: F401
 
         return True
     except ImportError:

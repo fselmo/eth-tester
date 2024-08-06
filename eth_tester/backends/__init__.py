@@ -7,8 +7,14 @@ from eth_tester.utils.module_loading import (
 )
 
 from .eels import (
-    EELSBackend,
+    is_eels_available,
 )
+
+if is_eels_available():
+    from .eels import (
+        EELSBackend,
+    )
+
 from .mock import (
     MockBackend,
 )
