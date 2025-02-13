@@ -37,10 +37,10 @@ from .utils import (
 )
 
 if eels_is_available():
-    from ethereum import (
+    from ethereum_rlp import (
         rlp,
     )
-    from ethereum.base_types import (
+    from ethereum_types.numeric import (
         U64,
         U256,
         Uint,
