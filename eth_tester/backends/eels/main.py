@@ -349,7 +349,7 @@ class EELSBackend(BaseChainBackend):
     # Snapshot API
     #
     def take_snapshot(self):
-        return self.chain.latest_block.header.number
+        return int(self.chain.latest_block.header.number)
 
     def revert_to_snapshot(self, block_number):
         if block_number not in self._state_context_history:
