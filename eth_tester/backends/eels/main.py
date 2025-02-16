@@ -852,13 +852,13 @@ class EELSBackend(BaseChainBackend):
 
     def get_storage(
         self, account: Address, slot: Union[int, bytes], block_number="pending"
-    ) -> bytes:
+    ) -> int:
         if isinstance(slot, int):
             slot = int_to_big_endian(slot)
         # left pad with zero bytes to 32 bytes
         slot = slot.rjust(32, b"\x00")
         with self._state_context_manager(block_number):
-            return self._state_module.get_storage(self.chain.state, account, slot)
+            return int(self._state_module.get_storage(self.chain.state, account, slot))
 
     def get_base_fee(self) -> int:
         return self._pending_block["header"]["base_fee_per_gas"]
