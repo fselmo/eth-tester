@@ -34,10 +34,10 @@ def _serialize_withdrawals_to_block(serialized_block, withdrawals):
     for withdrawal in withdrawals:
         serialized_block["withdrawals"].append(
             {
-                "index": withdrawal.index,
-                "validator_index": withdrawal.validator_index,
+                "index": int(withdrawal.index),
+                "validator_index": int(withdrawal.validator_index),
                 "address": withdrawal.address,
-                "amount": withdrawal.amount,
+                "amount": int(withdrawal.amount),
             }
         )
     return serialized_block
@@ -161,7 +161,7 @@ def serialize_eels_transaction_for_block(
         "nonce": int(tx.nonce),
         "block_hash": block_hash,
         "block_number": int(block_number),
-        "transaction_index": index,
+        "transaction_index": int(index),
         "to": tx.to,
         "value": int(tx.value),
         "gas": int(tx.gas),
@@ -176,6 +176,7 @@ def serialize_eels_transaction_for_block(
     if hasattr(tx, "max_priority_fee_per_gas"):
         json_tx["max_priority_fee_per_gas"] = int(tx.max_priority_fee_per_gas)
     if hasattr(tx, "access_list"):
+        # TODO: properly serialize access list
         json_tx["access_list"] = tx.access_list
     if hasattr(tx, "blob_versioned_hashes"):
         json_tx["blob_versioned_hashes"] = tx.blob_versioned_hashes

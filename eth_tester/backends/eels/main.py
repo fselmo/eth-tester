@@ -973,9 +973,9 @@ class EELSBackend(BaseChainBackend):
         private_key = self._key_lookup[sender_address]
         eth_tester_normalized_transaction = normalize_transaction_fields(
             transaction,
-            self.chain.chain_id,
+            int(self.chain.chain_id),
             self.get_nonce(sender_address),
-            self.get_base_fee(),
+            int(self.get_base_fee()),
         )
 
         # EELS-specific normalization
@@ -1131,7 +1131,7 @@ class EELSBackend(BaseChainBackend):
         )
         return tx_hash
 
-    def estimate_gas(self, transaction, block_number="pending"):
+    def estimate_gas(self, transaction, block_number="pending") -> int:
         original_sender_address = transaction["from"]
         with self._state_context_manager(block_number, synthetic_state=True):
             try:
@@ -1193,9 +1193,9 @@ class EELSBackend(BaseChainBackend):
     ):
         raise NotImplementedError("Fee history is not implemented in the EELS backend.")
 
-    def _max_available_gas(self):
+    def _max_available_gas(self) -> int:
         header = self.chain.latest_block.header
-        return header.gas_limit - header.gas_used
+        return int(header.gas_limit - header.gas_used)
 
     def _generate_transaction_env(self, transaction):
         signed_and_normalized_json_tx = self._get_normalized_and_signed_evm_transaction(
