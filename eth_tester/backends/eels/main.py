@@ -1075,7 +1075,9 @@ class EELSBackend(BaseChainBackend):
                 self,
                 raw_transaction,
             )
-            eels_transaction = self._transactions_module.BlobTransaction(**tx_dict)
+            eels_transaction = self._transactions_module.BlobTransaction(
+                **tx_dict
+            )
         else:
             try:
                 eels_transaction = self.fork.decode_transaction(raw_transaction)
@@ -1107,7 +1109,7 @@ class EELSBackend(BaseChainBackend):
         )
         return tx_hash
 
-    def send_transaction(self, transaction):
+    def send_transaction(self, transaction: Dict[str, Any]) -> bytes:
         if (
             transaction.get("to") in (b"", "0x0", "0x00", None)
             and "gas" not in transaction
