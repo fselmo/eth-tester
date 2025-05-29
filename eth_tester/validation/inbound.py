@@ -104,7 +104,7 @@ validate_transaction_hash = partial(validate_32_byte_hex_value, name="Transactio
 validate_filter_id = partial(validate_positive_integer)
 
 
-def validate_account(value):
+def validate_account(value: bytes) -> None:
     if not is_text(value) or not is_hex_address(value):
         raise ValidationError(
             f"Address must be 20 bytes encoded as hexadecimal - address: {value}"

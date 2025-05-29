@@ -2,6 +2,7 @@ import os
 import time
 from typing import (
     Dict,
+    Generator,
     List,
     Union,
 )
@@ -23,6 +24,8 @@ from eth_typing import (
 )
 from eth_utils import (
     ValidationError as EthUtilsValidationError,
+)
+from eth_utils import (
     encode_hex,
     is_integer,
     to_bytes,
@@ -91,7 +94,11 @@ if is_supported_pyevm_version_available():
     )
     from eth.exceptions import (
         HeaderNotFound as EVMHeaderNotFound,
+    )
+    from eth.exceptions import (
         InvalidInstruction as EVMInvalidInstruction,
+    )
+    from eth.exceptions import (
         Revert as EVMRevert,
     )
     from eth.vm.forks import (
@@ -529,7 +536,7 @@ class PyEVMBackend(BaseChainBackend):
     # Accounts
     #
     @to_tuple
-    def get_accounts(self):
+    def get_accounts(self) -> Generator[Address, None, None]:
         for private_key in self.account_keys:
             yield private_key.public_key.to_canonical_address()
 
@@ -613,7 +620,7 @@ class PyEVMBackend(BaseChainBackend):
         vm = _get_vm_for_block_number(self.chain, block_number)
         return vm.state.get_nonce(account)
 
-    def get_balance(self, account, block_number="latest"):
+    def get_balance(self, account, block_number="latest") -> int:
         vm = _get_vm_for_block_number(self.chain, block_number)
         return vm.state.get_balance(account)
 
@@ -696,6 +703,9 @@ class PyEVMBackend(BaseChainBackend):
     def _get_normalized_and_signed_evm_transaction(
         self, transaction, block_number="latest"
     ):
+        import pdb
+
+        pdb.set_trace()
         if transaction["from"] not in self._key_lookup:
             raise ValidationError(
                 'No valid "from" key was provided in the transaction '

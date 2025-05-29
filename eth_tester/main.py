@@ -10,6 +10,8 @@ from typing import (
 )
 
 from eth_typing import (
+    BlockIdentifier,
+    ChecksumAddress,
     HexAddress,
     HexStr,
 )
@@ -34,6 +36,9 @@ from pydantic import (
 from eth_tester.backends import (
     get_chain_backend,
 )
+from eth_tester.backends.base import (
+    BaseChainBackend,
+)
 from eth_tester.constants import (
     ZERO_ADDRESS_HEX,
 )
@@ -45,12 +50,21 @@ from eth_tester.exceptions import (
     TransactionNotFound,
     ValidationError,
 )
+from eth_tester.types.requests.accounts import (
+    CanonicalAddress,
+)
 from eth_tester.types.requests.base import (
     RequestHexBytes,
 )
 from eth_tester.types.requests.transactions import (
     SignedTypedTransaction,
     TransactionRequestObject,
+)
+from eth_tester.types.response.accounts import (
+    ChecksumAddressesResponse,
+)
+from eth_tester.types.response.hex import (
+    HexStrResponse,
 )
 from eth_tester.utils.accounts import (
     private_key_to_address,
@@ -114,7 +128,7 @@ def handle_auto_mining(func):
 
 
 class EthereumTester:
-    backend = None
+    backend: BaseChainBackend
 
     validator = None
     normalizer = None
@@ -126,6 +140,11 @@ class EthereumTester:
     def __init__(self, backend=None, auto_mine_transactions=True):
         if backend is None:
             backend = get_chain_backend()
+
+        if backend is None:
+            raise ValueError("Backend must be provided")
+        if not isinstance(backend, BaseChainBackend):
+            raise ValueError("Backend must be a ChainBackend")
 
         self.backend = backend
         self.chain_id = lambda: int(self.backend.chain.chain_id)
@@ -185,9 +204,10 @@ class EthereumTester:
     #
     # Accounts
     #
-    def get_accounts(self):
-        raw_accounts = self.backend.get_accounts()
-        return raw_accounts
+    def get_accounts(self) -> List[ChecksumAddress]:
+        return ChecksumAddressesResponse.model_validate(
+            self.backend.get_accounts()
+        ).root
 
     def add_account(self, private_key, password=None):
         # TODO: validation
@@ -235,15 +255,11 @@ class EthereumTester:
 
         self._account_unlock[raw_account] = False
 
-    def get_balance(self, account, block_number="pending"):
-        self.validator.validate_inbound_account(account)
-        self.validator.validate_inbound_block_number(block_number)
-        raw_account = self.normalizer.normalize_inbound_account(account)
-        raw_block_number = self.normalizer.normalize_inbound_block_number(block_number)
-        raw_balance = self.backend.get_balance(raw_account, raw_block_number)
-        self.validator.validate_outbound_balance(raw_balance)
-        balance = self.normalizer.normalize_outbound_balance(raw_balance)
-        return balance
+    @validate_call
+    def get_balance(
+        self, address: CanonicalAddress, block_number: BlockIdentifier = "pending"
+    ) -> HexStr:
+        return HexStrResponse(self.backend.get_balance(address, block_number)).root
 
     def get_code(self, account, block_number="pending"):
         self.validator.validate_inbound_account(account)

@@ -144,6 +144,28 @@ class RequestType:
             raise ValueError(f"Value must be a hex string, got `{v}`")
 
 
+class ResponseType:
+    """Base class for response types."""
+
+    _schema: core_schema.CoreSchema = None
+
+    serializer: Callable[..., Any] = to_hex
+    normalizer: Callable[..., Any] = None
+
+    @classmethod
+    def _fill_model(cls, v: Any) -> Any:
+        if cls.validator:
+            cls.validator(v)
+        if cls.normalizer:
+            v = cls.normalizer(v)
+        return v
+
+    @staticmethod
+    def validator(v: Any) -> None:
+        if not is_hexstr(v):
+            raise ValueError(f"Value must be a hex string, got `{v}`")
+
+
 class RequestHexInteger(int, RequestType):
     _schema = core_schema.int_schema()
     normalizer = partial(from_hexstr, to_type="int")

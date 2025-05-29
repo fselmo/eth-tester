@@ -1,5 +1,5 @@
 import pytest
-
+import rlp
 from eth_keys import (
     keys,
 )
@@ -17,7 +17,6 @@ from eth_utils.toolz import (
     dissoc,
     merge,
 )
-import rlp
 
 from eth_tester.constants import (
     BURN_ADDRESS,
@@ -210,9 +209,9 @@ class BaseTestBackendDirect:
     def test_get_balance_of_listed_accounts(self, eth_tester):
         for account in eth_tester.get_accounts():
             balance = eth_tester.get_balance(account)
-            assert is_integer(balance)
-            assert balance >= UINT256_MIN
-            assert balance <= UINT256_MAX
+            assert is_hex(balance)
+            assert int(balance, 16) >= UINT256_MIN
+            assert int(balance, 16) <= UINT256_MAX
 
     def test_get_code_account_with_code(self, eth_tester):
         self.skip_if_no_evm_execution()

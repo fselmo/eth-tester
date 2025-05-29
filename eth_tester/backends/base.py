@@ -2,6 +2,13 @@ from abc import (
     ABCMeta,
     abstractmethod,
 )
+from typing import (
+    List,
+)
+
+from eth_typing import (
+    Address,
+)
 
 ZERO_ADDRESS = 20 * b"\x00"
 
@@ -42,7 +49,7 @@ class BaseChainBackend(metaclass=ABCMeta):
     # Accounts
     #
     @abstractmethod
-    def get_accounts(self):
+    def get_accounts(self) -> List[Address]:
         raise NotImplementedError("Must be implemented by subclasses")
 
     @abstractmethod
@@ -76,7 +83,7 @@ class BaseChainBackend(metaclass=ABCMeta):
         raise NotImplementedError("Must be implemented by subclasses")
 
     @abstractmethod
-    def get_balance(self, account, block_number=None):
+    def get_balance(self, account, block_number=None) -> int:
         raise NotImplementedError("Must be implemented by subclasses")
 
     @abstractmethod
