@@ -39,7 +39,9 @@ class ResponseAccountAccess(RequestType):
     # validator = validate_account_access
 
     @classmethod
-    def serializer(cls, v: Tuple[bytes, Tuple[int]]) -> ...:
+    def serializer(
+        cls, v: Tuple[bytes, Tuple[int]]
+    ) -> Dict[str, Union[str, List[str]]]:
         return {
             "address": v[0].hex(),
             "storageKeys": [hex(k) for k in v[1]],
@@ -121,7 +123,7 @@ class AccessListTransactionResponse(TypedTransactionResponse):
     """EIP-2930 access list transaction type."""
 
     access_list: List[ResponseAccountAccess] = Field(default_factory=list)
-    gas_price: "ResponseHexStr"
+    gas_price: Optional["ResponseHexStr"]
     type: "ResponseHexStr" = Field(default="0x1", frozen=True)
 
 
@@ -235,7 +237,8 @@ TransactionRPCResponse = Annotated[
     Union[
         Annotated[SerializedModel[LegacyTransactionResponse], Tag("legacy")],
         Annotated[
-            SerializedModel[SignedLegacyTransactionResponse], Tag("signed_legacy")
+            SerializedModel[SignedLegacyTransactionResponse],
+            Tag("signed_legacy"),
         ],
         Annotated[SerializedModel[AccessListTransactionResponse], Tag("access_list")],
         Annotated[
@@ -251,7 +254,8 @@ TransactionRPCResponse = Annotated[
         Annotated[SerializedModel[SignedBlobTransactionResponse], Tag("signed_blob")],
         Annotated[SerializedModel[SetCodeTransactionResponse], Tag("set_code")],
         Annotated[
-            SerializedModel[SignedSetCodeTransactionResponse], Tag("signed_set_code")
+            SerializedModel[SignedSetCodeTransactionResponse],
+            Tag("signed_set_code"),
         ],
     ],
     Discriminator(transaction_response_discriminator),
@@ -268,7 +272,7 @@ class TransactionReceiptResponse(ResponseModel):
 
     block_hash: "ResponseHexStr"
     block_number: "ResponseHexStr"
-    contract_address: Optional["ResponseHexStr"] = None
+    contract_address: "ResponseHexStr"
     cumulative_gas_used: "ResponseHexStr"
     sender: "ResponseHexStr" = Field(alias="from")
     gas_used: "ResponseHexStr"
@@ -277,7 +281,7 @@ class TransactionReceiptResponse(ResponseModel):
     blob_gas_price: Optional["ResponseHexStr"] = None
     logs: List[Dict[str, Any]] = Field(default_factory=list)
     # logs_bloom: "ResponseHexStr"
-    status: Optional["ResponseHexStr"]
+    status: Optional["ResponseHexStr"] = None
     to: "ResponseHexStr"
     transaction_hash: "ResponseHexStr"
     transaction_index: "ResponseHexStr"

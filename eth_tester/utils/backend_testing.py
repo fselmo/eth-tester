@@ -17,6 +17,9 @@ from eth_utils.toolz import (
     dissoc,
     merge,
 )
+from pydantic_core._pydantic_core import (
+    ValidationError as PydanticValidationError,
+)
 import rlp
 
 from eth_tester.constants import (
@@ -56,13 +59,14 @@ from .throws_contract import (
 PK_A = "0x58d23b55bc9cdce1f18c2500f40ff4ab7245df9a89505e9b1fa4851f623d241d"
 PK_A_ADDRESS = "0xdc544d1aa88ff8bbd2f2aec754b1f1e99e1812fd"
 
-NON_DEFAULT_GAS_PRICE = 1000000000
+NON_DEFAULT_GAS_PRICE = hex(1000000000)
+DEFAULT_GAS = hex(21000)
 
 SIMPLE_TRANSACTION = {
     "to": BURN_ADDRESS,
     "gasPrice": NON_DEFAULT_GAS_PRICE,
-    "value": 0,
-    "gas": 21000,
+    "value": hex(0),
+    "gas": DEFAULT_GAS,
 }
 
 TRANSACTION_WTH_NONCE = assoc(SIMPLE_TRANSACTION, "nonce", 0)
@@ -70,8 +74,8 @@ TRANSACTION_WTH_NONCE = assoc(SIMPLE_TRANSACTION, "nonce", 0)
 CONTRACT_TRANSACTION_EMPTY_TO = {
     "to": "",
     "gasPrice": NON_DEFAULT_GAS_PRICE,
-    "value": 0,
-    "gas": 100000,
+    "value": hex(0),
+    "gas": DEFAULT_GAS,
 }
 CONTRACT_TRANSACTION_MISSING_TO = dissoc(CONTRACT_TRANSACTION_EMPTY_TO, "to")
 
@@ -174,8 +178,8 @@ class BaseTestBackendDirect:
             {
                 "from": eth_tester.get_accounts()[0],
                 "to": account,
-                "value": 1 * denoms.ether,
-                "gas": 21000,
+                "value": hex(1 * denoms.ether),
+                "gas": DEFAULT_GAS,
                 "gasPrice": NON_DEFAULT_GAS_PRICE,
             }
         )
@@ -194,8 +198,8 @@ class BaseTestBackendDirect:
             {
                 "from": eth_tester.get_accounts()[0],
                 "to": account,
-                "value": 1 * denoms.ether,
-                "gas": 21000,
+                "value": hex(1 * denoms.ether),
+                "gas": DEFAULT_GAS,
                 "gasPrice": NON_DEFAULT_GAS_PRICE,
             }
         )
@@ -241,7 +245,11 @@ class BaseTestBackendDirect:
                 "latest",
                 [],
                 {
-                    "base_fee_per_gas": [300657803, 343608917, 392695905],
+                    "base_fee_per_gas": [
+                        hex(300657803),
+                        hex(343608917),
+                        hex(392695905),
+                    ],
                     "gas_used_ratio": [0.0, 0.0, 0.0],
                     "reward": [],
                 },
@@ -251,7 +259,7 @@ class BaseTestBackendDirect:
                 "safe",
                 [],
                 {
-                    "base_fee_per_gas": [300657803],
+                    "base_fee_per_gas": [hex(300657803)],
                     "gas_used_ratio": [0.0],
                     "reward": [],
                 },
@@ -261,7 +269,7 @@ class BaseTestBackendDirect:
                 "finalized",
                 [],
                 {
-                    "base_fee_per_gas": [300657803],
+                    "base_fee_per_gas": [hex(300657803)],
                     "gas_used_ratio": [0.0],
                     "reward": [],
                 },
@@ -281,7 +289,7 @@ class BaseTestBackendDirect:
                 "pending",
                 [],
                 {
-                    "base_fee_per_gas": [300657803],
+                    "base_fee_per_gas": [hex(300657803)],
                     "gas_used_ratio": [0.0],
                     "reward": [],
                 },
@@ -373,8 +381,9 @@ class BaseTestBackendDirect:
             {
                 "from": eth_tester.get_accounts()[0],
                 "to": test_key.public_key.to_checksum_address(),
-                "gas": 21000,
+                "gas": DEFAULT_GAS,
                 "value": 1 * denoms.ether,
+                "gasPrice": NON_DEFAULT_GAS_PRICE,
             }
         )
 
@@ -447,14 +456,12 @@ class BaseTestBackendDirect:
             "to": accounts[0],
             "from": accounts[0],
             "value": 1,
-            "gas": 21000,
-            "gasPrice": 1234567890,
-            "maxFeePerGas": 1000000000,
-            "maxPriorityFeePerGas": 1000000000,
+            "gas": DEFAULT_GAS,
+            "gasPrice": hex(1234567890),
+            "maxFeePerGas": hex(1000000000),
+            "maxPriorityFeePerGas": hex(1000000000),
         }
-        with pytest.raises(
-            ValidationError, match="legacy and dynamic fee transaction values"
-        ):
+        with pytest.raises(PydanticValidationError):
             self._send_and_check_transaction(eth_tester, test_transaction, accounts[0])
 
     def test_send_transaction_no_gas_price_or_dynamic_fees(self, eth_tester):
@@ -483,9 +490,9 @@ class BaseTestBackendDirect:
             "chainId": 131277322940537,
             "from": accounts[0],
             "to": accounts[0],
-            "value": 1,
-            "gas": 40000,
-            "gasPrice": 1000000000,
+            "value": hex(1),
+            "gas": hex(40000),
+            "gasPrice": hex(1000000000),
             "accessList": (),
         }
         txn_hash = eth_tester.send_transaction(access_list_transaction)
@@ -521,19 +528,19 @@ class BaseTestBackendDirect:
         assert accounts, "No accounts available for transaction sending"
 
         dynamic_fee_transaction = {
-            "chainId": 131277322940537,
+            "chainId": hex(131277322940537),
             "from": accounts[0],
             "to": accounts[0],
-            "value": 1,
-            "gas": 40000,
-            "maxFeePerGas": 2000000000,
-            "maxPriorityFeePerGas": 1000000000,
+            "value": hex(1),
+            "gas": hex(40000),
+            "maxFeePerGas": hex(2000000000),
+            "maxPriorityFeePerGas": hex(1000000000),
         }
         txn_hash = eth_tester.send_transaction(dynamic_fee_transaction)
         txn = eth_tester.get_transaction_by_hash(txn_hash)
 
         assert txn.get("type") == "0x2"
-        assert txn.get("accessList") == ()
+        assert txn.get("accessList") == []
         self._check_transactions(dynamic_fee_transaction, txn)
 
         # with non-empty access list
@@ -554,7 +561,7 @@ class BaseTestBackendDirect:
         txn = eth_tester.get_transaction_by_hash(txn_hash)
 
         assert txn.get("type") == "0x2"
-        assert txn.get("accessList") != ()
+        assert txn.get("accessList") != []
         self._check_transactions(dynamic_fee_transaction, txn)
 
     def test_block_number_auto_mine_transactions_enabled(self, eth_tester):
@@ -728,12 +735,12 @@ class BaseTestBackendDirect:
     # Blocks
     #
     def test_get_genesis_block_by_number(self, eth_tester):
-        block = eth_tester.get_block_by_number(0)
+        block = eth_tester.get_block_by_number("0x0")
         assert block["number"] == 0
         _validate_serialized_block(block)
 
     def test_get_genesis_block_by_hash(self, eth_tester):
-        genesis_hash = eth_tester.get_block_by_number(0)["hash"]
+        genesis_hash = eth_tester.get_block_by_number("0x0")["hash"]
         block = eth_tester.get_block_by_hash(genesis_hash)
         assert block["number"] == 0
         _validate_serialized_block(block)
@@ -743,7 +750,7 @@ class BaseTestBackendDirect:
         mined_block_hashes = eth_tester.include_blocks(10)
         for offset, block_hash in enumerate(mined_block_hashes):
             block_number = origin_block_number + offset
-            block = eth_tester.get_block_by_number(block_number)
+            block = eth_tester.get_block_by_number(hex(block_number))
             assert block["number"] == block_number
             assert block["hash"] == block_hash
             _validate_serialized_block(block)
@@ -754,7 +761,8 @@ class BaseTestBackendDirect:
             {
                 "from": eth_tester.get_accounts()[0],
                 "to": BURN_ADDRESS,
-                "gas": 21000,
+                "gas": hex(21000),
+                "gasPrice": hex(669921875),
             }
         )
         transaction = eth_tester.get_transaction_by_hash(transaction_hash)
@@ -770,13 +778,13 @@ class BaseTestBackendDirect:
             {
                 "from": eth_tester.get_accounts()[0],
                 "to": BURN_ADDRESS,
-                "gas": 21000,
+                "gas": hex(21000),
+                "gasPrice": hex(10000),
             }
         )
         transaction = eth_tester.get_transaction_by_hash(transaction_hash)
         block = eth_tester.get_block_by_number(
             transaction["blockNumber"],
-            full_transactions=False,
         )
         assert is_hex(block["transactions"][0])
 
@@ -1263,8 +1271,9 @@ class BaseTestBackendDirect:
             {
                 "from": eth_tester.get_accounts()[0],
                 "to": BURN_ADDRESS,
-                "gas": 21000,
-                "value": 1,
+                "gas": hex(21000),
+                "gasPrice": hex(512908936),
+                "value": hex(1),
             }
         )
         fork_a_transaction_block_hash = eth_tester.get_transaction_by_hash(
@@ -1300,8 +1309,9 @@ class BaseTestBackendDirect:
             {
                 "from": eth_tester.get_accounts()[0],
                 "to": BURN_ADDRESS,
-                "gas": 21000,
-                "value": 2,
+                "gas": DEFAULT_GAS,
+                "gasPrice": NON_DEFAULT_GAS_PRICE,
+                "value": hex(2),
             }
         )
         fork_b_transaction_block_hash = eth_tester.get_transaction_by_hash(
@@ -1339,7 +1349,8 @@ class BaseTestBackendDirect:
                 {
                     "from": eth_tester.get_accounts()[0],
                     "to": BURN_ADDRESS,
-                    "gas": 21000,
+                    "gas": DEFAULT_GAS,
+                    "gasPrice": NON_DEFAULT_GAS_PRICE,
                 },
                 kwargs,
             )
@@ -1353,8 +1364,8 @@ class BaseTestBackendDirect:
 
         # send 2 transactions
         common_transactions = {
-            eth_tester.send_transaction(_transaction(value=1)),
-            eth_tester.send_transaction(_transaction(value=2)),
+            eth_tester.send_transaction(_transaction(value=hex(1))),
+            eth_tester.send_transaction(_transaction(value=hex(2))),
         }
 
         # take a snapshot
@@ -1362,9 +1373,9 @@ class BaseTestBackendDirect:
 
         # send 3 transactions
         before_transactions = [
-            eth_tester.send_transaction(_transaction(value=3)),
-            eth_tester.send_transaction(_transaction(value=4)),
-            eth_tester.send_transaction(_transaction(value=5)),
+            eth_tester.send_transaction(_transaction(value=hex(3))),
+            eth_tester.send_transaction(_transaction(value=hex(4))),
+            eth_tester.send_transaction(_transaction(value=hex(5))),
         ]
 
         # pull and sanity check the filter changes
@@ -1381,9 +1392,9 @@ class BaseTestBackendDirect:
 
         # send 3 transactions on the new fork
         after_transactions = [
-            eth_tester.send_transaction(_transaction(value=6)),
-            eth_tester.send_transaction(_transaction(value=7)),
-            eth_tester.send_transaction(_transaction(value=8)),
+            eth_tester.send_transaction(_transaction(value=hex(6))),
+            eth_tester.send_transaction(_transaction(value=hex(7))),
+            eth_tester.send_transaction(_transaction(value=hex(8))),
         ]
 
         # pull and sanity check the filter changes
@@ -1518,7 +1529,9 @@ class BaseTestBackendDirect:
         transaction = {
             "from": eth_tester.get_accounts()[0],
             "to": BURN_ADDRESS,
-            "gas": 21000,
+            "gas": DEFAULT_GAS,
+            "gasPrice": NON_DEFAULT_GAS_PRICE,
+            "value": hex(0),
         }
 
         # send a few initial transactions
@@ -1773,7 +1786,7 @@ class BaseTestBackendDirect:
             eth_tester.delete_filter(filter_id)
 
         with pytest.raises(FilterNotFound):
-            eth_tester.delete_filter(12345)
+            eth_tester.delete_filter(hex(12345))
 
     #
     # Serializer
@@ -1786,8 +1799,9 @@ class BaseTestBackendDirect:
             tx = {
                 "from": eth_tester.get_accounts()[i],
                 "to": eth_tester.get_accounts()[i + 1],
-                "gas": (i + 1) * 20000 + 10000,
-                "value": 1,
+                "gas": hex((i + 1) * 20000 + 10000),
+                "value": hex(1),
+                "gasPrice": NON_DEFAULT_GAS_PRICE,
             }
             tx_hash = eth_tester.send_transaction(tx)
             tx_hashes.append(tx_hash)
@@ -1796,9 +1810,9 @@ class BaseTestBackendDirect:
         cumulative_gas_used = 0
         for tx_hash in tx_hashes:
             receipt = eth_tester.get_transaction_receipt(tx_hash)
-            cumulative_gas_used += receipt["gasUsed"]
-            assert receipt["gasUsed"] == 21000
-            assert receipt["cumulativeGasUsed"] == cumulative_gas_used
+            cumulative_gas_used += int(receipt["gasUsed"], 16)
+            assert receipt["gasUsed"] == hex(21000)
+            assert int(receipt["cumulativeGasUsed"], 16) == cumulative_gas_used
 
     #
     # Time Travel
@@ -1811,21 +1825,25 @@ class BaseTestBackendDirect:
         before_block = eth_tester.get_block_by_number("latest")
 
         # now travel forward 2 minutes
-        eth_tester.time_travel(before_block["timestamp"] + 120)
+        timestamp = int(before_block["timestamp"], 16)
+        eth_tester.time_travel(timestamp + 120)
 
         # grab the new block
         after_block = eth_tester.get_block_by_number("latest")
 
         # test a block has been mined with expected timestamp during travel
+        after_block_timestamp = int(after_block["timestamp"], 16)
         assert after_block["number"] == (before_block["number"] + 1)
-        assert before_block["timestamp"] + 120 == after_block["timestamp"]
+        assert timestamp + 120 == after_block_timestamp
 
     def test_time_traveling_backwards_not_allowed(self, eth_tester):
         # first mine a few blocks
         eth_tester.include_blocks(3)
 
         # check the time
-        before_timestamp = eth_tester.get_block_by_number("latest")["timestamp"]
+        before_timestamp = int(
+            eth_tester.get_block_by_number("latest")["timestamp"], 16
+        )
 
         # try to travel backwards 10 seconds
         with pytest.raises(ValidationError):
@@ -1845,7 +1863,7 @@ class BaseTestBackendDirect:
         txn = byzantium_eth_tester.get_transaction_receipt(txn_hash)
 
         assert "status" in txn
-        assert txn["status"] == 1
+        assert txn["status"] == "0x1"
 
     def test_duplicate_log_entries(self, eth_tester):
         self.skip_if_no_evm_execution()

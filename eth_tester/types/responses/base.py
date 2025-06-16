@@ -25,11 +25,11 @@ class ResponseModel(CamelModel):
     model_config.update(extra="forbid")
 
     def serialize(self) -> Dict[str, Any]:
-        serialized = self.model_dump(by_alias=True, exclude_none=True)
+        serialized = self.model_dump(by_alias=True)
 
         force_include = self._include_if_none or set()
         result: Dict[str, Any] = {}
-        for field_name, field_info in self.model_fields.items():
+        for field_name, field_info in self.__class__.model_fields.items():
             key = field_info.alias if field_info.alias else field_name
 
             if key in serialized or field_name in force_include:
